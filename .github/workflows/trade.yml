@@ -52,6 +52,8 @@ jobs:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECIPIENT: ${{ vars.EMAIL_RECIPIENT }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
 
         run: |
           cd trading_system

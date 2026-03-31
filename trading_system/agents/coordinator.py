@@ -21,9 +21,11 @@ class StrategyCoordinator(BaseAgent):
         asset: str,
         proposals: List[TradeProposal],
         regime: MarketRegimeClassification,
+        sentiment_score: float = 0.5,
         rag_context: Optional[RAGContext] = None,
         calibrations: Optional[List[CalibrationMetrics]] = None
     ) -> SynthesizedDecision:
+
         
         active_props = [p for p in proposals if p.decision != "hold"]
         
@@ -86,8 +88,15 @@ class StrategyCoordinator(BaseAgent):
                     if cal.strategy_name == prop.strategy_name:
                         calibration_penalty = cal.reliability_haircut
             
+            # Sentiment Boost/Penalty
+            sentiment_mod = 0.0
+            if sentiment_score > 0.60:
+                sentiment_mod = 0.10
+            elif sentiment_score < 0.40:
+                sentiment_mod = -0.10
+            
             # Compute Final Synthesis Score
-            score = base_prob + regime_bonus + agreement_bonus + (rag_conf * 0.1) - prop.confidence_score - calibration_penalty
+            score = base_prob + regime_bonus + agreement_bonus + (rag_conf * 0.1) + sentiment_mod - prop.confidence_score - calibration_penalty
             
             if score > max_score:
                 max_score = score
@@ -96,23 +105,24 @@ class StrategyCoordinator(BaseAgent):
         # Final No-Trade Condition 5: Probability/Score Threshold Minimums
         # We need the synthesis score to fundamentally beat internal uncertainty limits
         if max_score < 0.45:
-            return self._abort(asset, regime, f"Winning strategy '{best_proposal.strategy_name}' failed minimum final synthesis score (Score: {max_score:.2f} < 0.45).")
+            return self._abort(asset, regime, f"Winning strategy '{best_proposal.strategy_name}' failed minimum final synthesis score (Score: {max_score:.2f} < 0.45). Sentiment: {sentiment_score:.2f}")
 
         # PLAYBOOK RULE: News Uncertainty - If RAG Confidence is < 0.3, the trade must have a consensus score > 0.8 to proceed.
         # Consensus score proxy here is our synthetic score being extremely high despite no news.
         if rag_conf < 0.3 and max_score < 0.8:
-            return self._abort(asset, regime, f"PLAYBOOK DISCIPLINE: Marginal signal ({max_score:.2f}) rejected due to news uncertainty loop (RAG < 0.3).")
+            return self._abort(asset, regime, f"PLAYBOOK DISCIPLINE: Marginal signal ({max_score:.2f}) rejected due to news uncertainty loop (RAG < 0.3). Sentiment: {sentiment_score:.2f}")
 
         return SynthesizedDecision(
             asset=asset,
             final_decision=best_proposal.decision,
             winning_strategy=best_proposal.strategy_name,
-            synthesized_probability=min(0.99, best_proposal.probabilities.probability_of_success + agreement_bonus),
+            synthesized_probability=min(0.99, best_proposal.probabilities.probability_of_success + agreement_bonus + (sentiment_mod * 0.5)),
             uncertainty_score=max(0.0, 1.0 - max_score), 
             expected_value_raw=0.0, 
             market_regime=regime,
-            reasoning_summary=f"PLAYBOOK APPROVED: {best_proposal.strategy_name} selected via score {max_score:.2f} (RAG: {rag_conf:.2f})."
+            reasoning_summary=f"PLAYBOOK APPROVED: {best_proposal.strategy_name} selected (Score: {max_score:.2f}, Sentiment: {sentiment_score:.2f})."
         )
+
 
     def _abort(self, asset: str, regime: MarketRegimeClassification, reason: str) -> SynthesizedDecision:
         return SynthesizedDecision(

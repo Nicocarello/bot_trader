@@ -31,6 +31,8 @@ from agents.strategy_agents import MomentumTrendFollower, MeanReversionAgent, Vo
 from agents.analytical_agents import MarketRegimeAgent, MacroEconomicsAgent
 from agents.sector_agent import SectorFlowAgent
 from agents.calendar_agent import CalendarAgent
+from agents.news_sentiment_agent import NewsSentimentAgent
+from agents.knowledge_agent import KnowledgeAgent
 from agents.risk_guard_agent import RiskGuardAgent
 from notifiers.email_notifier import EmailNotifier
 from agents.coordinator import StrategyCoordinator
@@ -68,6 +70,8 @@ class PaperTradingRunner:
         self.sector_agent = SectorFlowAgent()
         self.risk_guard = RiskGuardAgent(stop_loss_pct=-0.05, take_profit_pct=0.10)
         self.calendar_agent = CalendarAgent(earnings_days_before=3, earnings_days_after=1)
+        self.sentiment_agent = NewsSentimentAgent()
+        self.knowledge_agent = KnowledgeAgent()
         self.notifiers = EmailNotifier()
 
         # Strategy fleet (per-symbol)
@@ -246,7 +250,16 @@ class PaperTradingRunner:
     ):
         """Runs the full analysis + execution pipeline for a single symbol."""
 
+        # 0. Check Gemini News Sentiment (Safety Veto)
+        sentiment = self.sentiment_agent.analyze_ticker(symbol)
+        sentiment_score = sentiment.get("sentiment_score", 0.5)
+        if sentiment.get("veto"):
+            logger.warning(f"  🚫 [GEMINI VETO] {symbol}: {sentiment['reason']} — Skipping analysis.")
+            return
+
         # 1. Ingest Market Data
+
+
         market_data = self.ingestion.get_market_snapshot(symbol)
         current_price = market_data.get("close", 0.0)
         logger.info(f"  Price: ${current_price:.2f}")
@@ -278,25 +291,11 @@ class PaperTradingRunner:
         regime: MarketRegimeClassification = self.regime_agent.process(market_data, macro_data)
         logger.info(f"  Regime: {regime.regime.upper()} (conf: {regime.confidence:.2f})")
 
-        # 6. Ingest News Context
-        keywords = [symbol, "stock", "market", "finance", "earnings"]
-        news_payload = self.ingestion.fetch_structured_news_context(symbol, keywords)
-        top_summaries = [a["summary"] for a in news_payload.get("articles", [])]
-        sources = [a["source"] for a in news_payload.get("articles", [])]
-        conf = 0.8 if top_summaries else 0.5
-        rag_context = RAGContext(
-            query=symbol,
-            top_k_chunks=top_summaries,
-            source_documents=sources,
-            retrieval_confidence=conf
-        )
-        logger.info(f"  News Articles Found: {len(top_summaries)}")
-
-        # 7. Adjust market_data with sector bias signal for strategies
+        # Adjust market_data with bias signals for strategies
         market_data["sector_bias"] = sector_bias
         market_data["macro_bias"] = macro_assessment.get("bias", "neutral")
 
-        # 8. Generate Strategy Proposals
+        # 6. Generate Strategy Proposals
         proposals = []
         for strategy in self.strategies:
             prop = strategy.process(market_data, regime)
@@ -305,10 +304,24 @@ class PaperTradingRunner:
         decisions_str = " | ".join(f"{s.name[:8]}:{p.decision.upper()}" for s, p in zip(self.strategies, proposals))
         logger.info(f"  Proposals: {decisions_str}")
 
-        # 9. Coordinator Synthesis
+        # 7. Consult 'The Masters' (RAG Analysis)
+        # Use the best proposal for context
+        best_prop = proposals[0] if proposals else None
+        if best_prop and best_prop.decision != "hold":
+             rag_context = self.knowledge_agent.consult_masters(symbol, best_prop)
+        else:
+             rag_context = RAGContext(query="No active trade setup", top_k_chunks=[], source_documents=[], retrieval_confidence=0.5)
+
+        # 8. Coordinator Synthesis
         synth_decision = self.coordinator.process(
-            asset=symbol, proposals=proposals, regime=regime, rag_context=rag_context
+
+            asset=symbol, 
+            proposals=proposals, 
+            regime=regime, 
+            rag_context=rag_context,
+            sentiment_score=sentiment_score
         )
+
         logger.info(f"  Synthesis: {synth_decision.final_decision.upper()} via {synth_decision.winning_strategy}")
 
         if synth_decision.final_decision in ["no_trade", "hold"]:
