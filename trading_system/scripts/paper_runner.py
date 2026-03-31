@@ -30,6 +30,7 @@ from agents.strategy_agents import MomentumTrendFollower, MeanReversionAgent, Vo
 from agents.analytical_agents import MarketRegimeAgent, MacroEconomicsAgent
 from agents.sector_agent import SectorFlowAgent
 from agents.calendar_agent import CalendarAgent
+from agents.risk_guard_agent import RiskGuardAgent
 from agents.coordinator import StrategyCoordinator
 from data.live_ingestion import LiveDataIngestion
 from config import config
@@ -63,6 +64,7 @@ class PaperTradingRunner:
         self.regime_agent = MarketRegimeAgent()
         self.macro_agent = MacroEconomicsAgent()
         self.sector_agent = SectorFlowAgent()
+        self.risk_guard = RiskGuardAgent(stop_loss_pct=-0.05, take_profit_pct=0.10)
         self.calendar_agent = CalendarAgent(earnings_days_before=3, earnings_days_after=1)
 
         # Strategy fleet (per-symbol)
@@ -120,9 +122,53 @@ class PaperTradingRunner:
             logger.warning("  [!] No sector data retrieved. Proceeding with 'neutral' rotation bias.")
 
         # ─────────────────────────────────────────────────────
-        # PHASE 3: Per-Symbol Analysis Loop
+        # PHASE 3: Risk Monitoring (Exits: Stop Loss / Take Profit)
         # ─────────────────────────────────────────────────────
-        logger.info(f"\n[PHASE 3] Starting per-symbol analysis loop ({len(universe)} tickers)...")
+        logger.info("\n[PHASE 3] Monitoring Open Positions for Exits...")
+        try:
+            # Fetch real positions from Alpaca for exit logic
+            positions = self.execution.client.get_all_positions()
+            
+            # Map into a simplified dictionary list for the RiskGuardAgent
+            pos_dicts = []
+            for p in positions:
+                pos_dicts.append({
+                    'symbol': p.symbol,
+                    'qty': float(p.qty),
+                    'unrealized_plpc': float(p.unrealized_plpc),
+                    'current_price': float(p.current_price)
+                })
+            
+            # Request exit signals from RiskGuardAgent
+            exits = self.risk_guard.evaluate_positions(pos_dicts)
+            
+            if not exits:
+                logger.info("  No exit triggers hit. All positions within risk bounds.")
+            else:
+                for exit_sig in exits:
+                    logger.warning(f"  🚨 [EXIT SIGNAL] {exit_sig.symbol}: {exit_sig.reason} @ ${exit_sig.current_price:.2f}")
+                    
+                    # Convert ExitSignal into a synthetic RiskDecision for the adapter
+                    from schemas.models import RiskDecision
+                    exit_decision = RiskDecision(
+                        asset=exit_sig.symbol,
+                        action="sell",
+                        approved=True,
+                        final_capital_allocation_usd=exit_sig.qty * exit_sig.current_price,
+                        reasoning=exit_sig.reason
+                    )
+                    
+                    # Execute the SELL order immediately
+                    report = self.execution.route_order(exit_decision, exit_sig.current_price)
+                    logger.info(f"  [EXECUTION] Sell order: {report.status} for {report.quantity} shares.")
+                    
+        except Exception as e:
+            logger.error(f"  [ERROR] Position monitoring failed: {e}")
+
+        # ─────────────────────────────────────────────────────
+        # PHASE 4: Per-Symbol Analysis Loop
+        # ─────────────────────────────────────────────────────
+        logger.info(f"\n[PHASE 4] Starting per-symbol analysis loop ({len(universe)} tickers)...")
 
         for symbol in universe:
             logger.info(f"\n{'─'*60}")
@@ -137,6 +183,7 @@ class PaperTradingRunner:
         logger.info("\n╔══════════════════════════════════════════════════════╗")
         logger.info("║     CYCLE COMPLETE                                   ║")
         logger.info("╚══════════════════════════════════════════════════════╝\n")
+
 
     def _run_symbol_cycle(
         self, symbol: str,

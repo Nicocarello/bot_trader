@@ -63,8 +63,8 @@ class AlpacaPaperAdapter(ExecutionVenue):
         """
         assert decision.approved is True, "Alpaca Adapter received an unapproved trade!"
 
-        # Extract Action. In reality, strategy output dictates this. Defaulting to MVP Buy.
-        action = "buy"  
+        # Map action from RiskDecision to OrderSide
+        action = getattr(decision, 'action', 'buy').lower()
         side = OrderSide.BUY if action == "buy" else OrderSide.SELL
         
         # Calculate algorithmic quantity (fractional shares allowed by Alpaca)
