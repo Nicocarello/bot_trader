@@ -29,6 +29,7 @@ from execution.alpaca_paper_adapter import AlpacaPaperAdapter
 from agents.strategy_agents import MomentumTrendFollower, MeanReversionAgent, VolatilityBreakoutAgent, FundamentalAnalystAgent
 from agents.analytical_agents import MarketRegimeAgent, MacroEconomicsAgent
 from agents.sector_agent import SectorFlowAgent
+from agents.calendar_agent import CalendarAgent
 from agents.coordinator import StrategyCoordinator
 from data.live_ingestion import LiveDataIngestion
 from config import config
@@ -62,6 +63,7 @@ class PaperTradingRunner:
         self.regime_agent = MarketRegimeAgent()
         self.macro_agent = MacroEconomicsAgent()
         self.sector_agent = SectorFlowAgent()
+        self.calendar_agent = CalendarAgent(earnings_days_before=3, earnings_days_after=1)
 
         # Strategy fleet (per-symbol)
         self.strategies = [
@@ -78,6 +80,15 @@ class PaperTradingRunner:
         logger.info("║     MULTI-SECTOR PAPER RUNNER — CYCLE START          ║")
         logger.info(f"║     Universe: {len(universe)} tickers                            ║")
         logger.info("╚══════════════════════════════════════════════════════╝")
+
+        # ─────────────────────────────────────────────────────
+        # PHASE 0: Economic Calendar Blackout Check (once per cycle)
+        # ─────────────────────────────────────────────────────
+        econ_check = self.calendar_agent.check_economic_blackout()
+        if econ_check["blackout"]:
+            logger.warning(f"\n🚫 [ECONOMIC BLACKOUT] {econ_check['reason']}")
+            logger.warning("   No trades will be placed today. Bot shutting down cycle.")
+            return
 
         # ─────────────────────────────────────────────────────
         # PHASE 1: Global Context (runs ONCE per cycle)
@@ -151,9 +162,17 @@ class PaperTradingRunner:
             logger.info(f"  [SKIP] Double headwind (Sector + Macro). Strong no-trade signal.")
             return
 
-        # 4. Fetch Fundamentals
+        # 4. Earnings Calendar Blackout check (per-symbol)
+        calendar_check = self.calendar_agent.is_clear_to_trade(symbol)
+        if not calendar_check["clear"]:
+            logger.warning(f"  📅 {calendar_check['reason']}")
+            return
+        logger.info(f"  📅 {calendar_check['reason']}")
+
+        # 5. Fetch Fundamentals
         fundamentals = self.ingestion.fetch_fundamentals(symbol)
         market_data["fundamentals"] = fundamentals
+
 
         # 5. Precise Regime Classification using Macro + Technical data
         regime: MarketRegimeClassification = self.regime_agent.process(market_data, macro_data)
