@@ -67,20 +67,20 @@ class RiskManager:
         
         kelly_fraction_suggested = raw_kelly * self.base_kelly_fraction * penalty_factor
         
-        # PLAYBOOK RULE: Max Position Size 5% of total account equity
-        PLAYBOOK_MAX_POS_PCT = 0.05
+        # YOLO MODE RULE: Max Position Size 15% of total account equity
+        PLAYBOOK_MAX_POS_PCT = 0.15
         if kelly_fraction_suggested > PLAYBOOK_MAX_POS_PCT:
             kelly_fraction_suggested = PLAYBOOK_MAX_POS_PCT
             
         if kelly_fraction_suggested <= 0.005:  # Ignore micro-trades (< 0.5% allocation)
             return self._reject(decision, f"INSUFFICIENT EDGE: Uncertainty heavily penalized size to {kelly_fraction_suggested:.4f}.")
             
-        # 6. Capital Allocation & Total Exposure Check (PLAYBOOK RULE: Max 25% Total Exposure)
+        # 6. Capital Allocation & Total Exposure Check (YOLO MODE RULE: Max 80% Total Exposure)
         total_value_at_risk = sum([pos_value for pos_value in portfolio.open_positions.values()]) # This is illustrative; assuming simple dollar value for MVP
         # In a real system we'd calculate Notional. For MVP, we'll check cash levels.
         
-        # Total Exposure Limit: 25% of total equity
-        PLAYBOOK_TOTAL_EXPOSURE_CAP = 0.25
+        # Total Exposure Limit: 80% of total equity
+        PLAYBOOK_TOTAL_EXPOSURE_CAP = 0.80
         current_exposure_pct = 1.0 - (portfolio.available_cash_usd / portfolio.total_capital_usd)
         
         if (current_exposure_pct + kelly_fraction_suggested) > PLAYBOOK_TOTAL_EXPOSURE_CAP:
@@ -89,6 +89,7 @@ class RiskManager:
              if available_room_pct < 0.01:
                  return self._reject(decision, f"PLAYBOOK EXPOSURE LIMIT: Total exposure would exceed {PLAYBOOK_TOTAL_EXPOSURE_CAP*100}%.")
              kelly_fraction_suggested = available_room_pct
+
 
         final_capital_usd = portfolio.total_capital_usd * kelly_fraction_suggested
         
