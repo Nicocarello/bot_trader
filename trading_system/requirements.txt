@@ -19,3 +19,17 @@ SQLAlchemy==2.0.28
 
 # Execution (Paper Only)
 alpaca-py==0.17.4
+
+# Live Data — Market, Macro & Fundamentals
+yfinance==0.2.36
+
+# News Ingestion
+feedparser==6.0.11
+newspaper3k==0.2.8
+lxml[html_clean]
+
+# Scheduler
+schedule==1.2.1
+
+# Environment
+python-dotenv==1.0.1
