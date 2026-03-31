@@ -300,8 +300,11 @@ if __name__ == "__main__":
         # --- Crypto-Linked & Fintech ---
         "COIN", "MARA", "PYPL", "SQ",
         # --- Market Tracking / ETFs ---
-        "SPY", "QQQ", "IWM", "GLD"
+        "SPY", "QQQ", "IWM", "GLD",
+        # --- International (LatAm / Japan / Brazil) ---
+        "MELI", "EWJ", "EWZ"
     ]
+
 
     try:
         runner = PaperTradingRunner()
