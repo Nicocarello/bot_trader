@@ -14,6 +14,7 @@ Architecture:
 """
 import sys
 import logging
+from datetime import datetime, date, timezone
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -195,9 +196,16 @@ class PaperTradingRunner:
     def send_daily_summary(self):
         """
         Fetches all orders filled within the last 24 hours from Alpaca 
-        and sends an email report.
+        and sends an email report ONLY during the closing bell cycle.
         """
-        logger.info("\n[PHASE 6] Generating Daily Operations Report...")
+        # --- DAILY REPORT GATE: Only send after 16:45 ART (19:45 UTC) ---
+        now_utc = datetime.now(timezone.utc)
+        if now_utc.hour < 19 or (now_utc.hour == 19 and now_utc.minute < 45):
+            logger.info("  [PHASE 6] Skipping report. Sending only during Closing Bell cycle (after 19:45 UTC).")
+            return
+
+        logger.info("\n[PHASE 6] Generating Daily Closing Bell Report...")
+
         try:
             from alpaca.trading.requests import GetOrdersRequest
             from alpaca.trading.enums import OrderStatus
