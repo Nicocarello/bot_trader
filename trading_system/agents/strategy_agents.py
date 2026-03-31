@@ -89,17 +89,26 @@ class VolatilityBreakoutAgent(StrategyAgent):
             bb_width_percentile = market_data.get('bb_width_percentile', 100.0)
             close = market_data.get('close', 0.0)
             bb_upper = market_data.get('bb_upper', 99999.0)
+            volume_ratio = market_data.get('volume_ratio', 1.0)  # NEW: real volume confirmation
             
             if bb_width_percentile < 20.0 and close > bb_upper:
                 decision = "long"
-                prob = 0.55
-                reason = "Squeeze Release: BB Width < 20% AND Close > BB Upper."
+                # Volume confirmation: breakout on high volume is a much stronger signal
+                if volume_ratio >= 1.5:
+                    prob = 0.68
+                    reason = (f"HIGH-CONVICTION Squeeze Release: BB Width < 20% AND Close > BB Upper "
+                              f"WITH volume confirmation ({volume_ratio:.1f}x avg).")
+                else:
+                    prob = 0.55
+                    reason = (f"Squeeze Release: BB Width < 20% AND Close > BB Upper "
+                              f"(low volume confirmation: {volume_ratio:.1f}x avg).")
                 
         return TradeProposal(
             strategy_name=self.name, asset=market_data.get("symbol", "AAPL"), decision=decision,
             probabilities=AgentProbability(probability_of_success=prob, expected_upside_pct=0.06, expected_downside_pct=0.02),
             confidence_score=0.25, market_regime=regime, reasoning=reason
         )
+
 
 class FundamentalAnalystAgent(StrategyAgent):
     """

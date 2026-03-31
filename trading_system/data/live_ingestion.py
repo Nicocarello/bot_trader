@@ -29,28 +29,113 @@ class LiveDataIngestion:
         self.data_client = StockHistoricalDataClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY)
         
     def get_market_snapshot(self, symbol: str) -> dict:
-        """Fetches latest price, volume, and infers basic momentum."""
+        """
+        Fetches live price from Alpaca and computes REAL technical indicators
+        from 60 days of yfinance daily history:
+          - SMA-20 (20-day Simple Moving Average)
+          - Bollinger Bands upper/lower (20-day, 2 std)
+          - Z-Score (standard deviations from 20-day mean)
+          - BB Width Percentile (squeeze detection vs last 50 bars)
+          - Volume Ratio (today's volume vs 20-day avg)
+        """
+        # --- Step 1: Live price from Alpaca ---
+        close_price = 0.0
+        volume = 0
         try:
             req = StockSnapshotRequest(symbol_or_symbols=symbol)
             snapshot = self.data_client.get_stock_snapshot(req)[symbol]
-            
             close_price = snapshot.latest_trade.price if snapshot.latest_trade else 0.0
             volume = snapshot.daily_bar.volume if snapshot.daily_bar else 0
-            
-            return {
-                "symbol": symbol,
-                "close": close_price,
-                "volume": volume,
-                "sma_20": close_price * 0.99, 
-                "prev_high": close_price * 0.98,
-                "z_score": 1.5,
-                "bb_width_percentile": 25.0,
-                "bb_upper": close_price * 1.05,
-                "bb_lower": close_price * 0.95
-            }
         except Exception as e:
-            logger.error(f"Failed to fetch Alpaca Market Data: {e}")
-            return {"symbol": symbol, "close": 150.0, "sma_20": 145.0, "prev_high": 148.0}
+            logger.warning(f"  [Alpaca snapshot failed for {symbol}, using yfinance fallback]: {e}")
+
+        # --- Step 2: Historical data from yfinance for real indicators ---
+        try:
+            hist = yf.download(symbol, period="60d", interval="1d", progress=False, auto_adjust=True)
+
+            if hist.empty or len(hist) < 5:
+                raise ValueError("Insufficient historical data.")
+
+            # Use yfinance close as fallback if Alpaca failed
+            yf_close = float(hist["Close"].iloc[-1])
+            if close_price == 0.0:
+                close_price = yf_close
+
+            closes = hist["Close"].squeeze().astype(float)
+
+            if len(closes) >= 20:
+                # --- SMA-20 ---
+                sma_20 = float(closes.rolling(20).mean().iloc[-1])
+
+                # --- Bollinger Bands (2 std) ---
+                std_20 = float(closes.rolling(20).std().iloc[-1])
+                bb_upper = sma_20 + 2.0 * std_20
+                bb_lower = sma_20 - 2.0 * std_20
+                bb_width = bb_upper - bb_lower
+
+                # --- Z-Score: how many std devs is price from the SMA ---
+                z_score = (close_price - sma_20) / std_20 if std_20 > 0 else 0.0
+
+                # --- BB Width Percentile (squeeze detection) ---
+                # Measures where current BB width falls vs its history (0=tightest, 100=widest)
+                if len(closes) >= 30:
+                    all_std = closes.rolling(20).std().dropna()
+                    all_widths = all_std * 4.0  # factor for upper-lower spread
+                    pct_below = float((all_widths < bb_width).mean() * 100)
+                    bb_width_percentile = round(pct_below, 1)
+                else:
+                    bb_width_percentile = 50.0
+
+                # --- Previous session high ---
+                prev_high = float(hist["High"].iloc[-2]) if len(hist) >= 2 else close_price
+
+                # --- Volume ratio: today vs 20-day average ---
+                avg_volume_20 = float(hist["Volume"].rolling(20).mean().iloc[-1])
+                volume_ratio = (volume / avg_volume_20) if avg_volume_20 > 0 else 1.0
+
+            else:
+                # Not enough history — use safe neutral defaults
+                logger.warning(f"  [{symbol}] Only {len(closes)} bars available. Using neutral indicator defaults.")
+                sma_20    = close_price * 0.99
+                bb_upper  = close_price * 1.04
+                bb_lower  = close_price * 0.96
+                z_score   = 0.0
+                bb_width_percentile = 50.0
+                prev_high = close_price
+                volume_ratio = 1.0
+
+            logger.info(
+                f"  [{symbol}] Price=${close_price:.2f} | SMA20=${sma_20:.2f} | "
+                f"Z={z_score:.2f} | BB%={bb_width_percentile:.0f} | VolRatio={volume_ratio:.1f}x"
+            )
+
+            return {
+                "symbol":               symbol,
+                "close":                close_price,
+                "volume":               volume,
+                "volume_ratio":         round(volume_ratio, 2),
+                "sma_20":               round(sma_20, 4),
+                "prev_high":            round(prev_high, 4),
+                "z_score":              round(z_score, 4),
+                "bb_upper":             round(bb_upper, 4),
+                "bb_lower":             round(bb_lower, 4),
+                "bb_width_percentile":  bb_width_percentile,
+            }
+
+        except Exception as e:
+            logger.error(f"  [{symbol}] Technical indicator calculation failed: {e}. Using fallback.")
+            return {
+                "symbol":               symbol,
+                "close":                close_price or 150.0,
+                "volume":               volume,
+                "volume_ratio":         1.0,
+                "sma_20":               (close_price or 150.0) * 0.99,
+                "prev_high":            (close_price or 150.0) * 1.01,
+                "z_score":              0.0,
+                "bb_upper":             (close_price or 150.0) * 1.04,
+                "bb_lower":             (close_price or 150.0) * 0.96,
+                "bb_width_percentile":  50.0,
+            }
 
     def fetch_fundamentals(self, symbol: str) -> dict:
         """Fetches structured fundamental metrics using yfinance."""
