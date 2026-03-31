@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Environment — NEVER commit API keys
+.env
+.env.local
+**/.env
+**/.env.local
+
+# Logs & output
+*.log
+logs/
+live_output.txt
+tmp.txt
+tmp_*.txt
+
+# Vector DB & local storage
+storage/
+vector_db/
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

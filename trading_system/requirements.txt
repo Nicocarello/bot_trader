@@ -1,0 +1,21 @@
+# Configuration
+pydantic==2.6.3
+pydantic-settings==2.2.1
+
+# Math and Data Analysis
+pandas==2.2.1
+numpy==1.26.4
+scipy==1.12.0
+
+# LLM & RAG
+langchain==0.1.12
+langchain-openai==0.0.8
+qdrant-client==1.8.0
+sentence-transformers==2.5.1
+pypdf==4.1.0
+
+# Storage
+SQLAlchemy==2.0.28
+
+# Execution (Paper Only)
+alpaca-py==0.17.4

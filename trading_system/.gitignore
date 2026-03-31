@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+
+# Environment configs
+.env
+.env.local
+
+# Logs and DB
+*.log
+logs/
+storage/vector_db/
+storage/*.db
+storage/*.sqlite
+storage/*.sqlite3
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo

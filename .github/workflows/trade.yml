@@ -1,0 +1,60 @@
+name: AI Trader — Scheduled Cycle
+
+on:
+  # ─────────────────────────────────────────────────────────────────
+  # Runs hourly from 14:00 to 19:00 UTC = 11:00 to 16:00 ART (UTC-3)
+  # on weekdays only (Mon-Fri).
+  # Note: GitHub cron uses UTC. ART = UTC-3.
+  # US Market (EDT): opens 13:30 UTC, closes 20:00 UTC.
+  # ─────────────────────────────────────────────────────────────────
+  schedule:
+    - cron: '30 13 * * 1-5'  # 13:30 UTC = 10:30 ART (market open)
+    - cron: '0  14 * * 1-5'  # 14:00 UTC = 11:00 ART
+    - cron: '0  15 * * 1-5'  # 15:00 UTC = 12:00 ART
+    - cron: '0  16 * * 1-5'  # 16:00 UTC = 13:00 ART
+    - cron: '0  17 * * 1-5'  # 17:00 UTC = 14:00 ART
+    - cron: '0  18 * * 1-5'  # 18:00 UTC = 15:00 ART
+    - cron: '0  19 * * 1-5'  # 19:00 UTC = 16:00 ART
+    - cron: '0  20 * * 1-5'  # 20:00 UTC = 17:00 ART (market close)
+
+  # Also allow running manually from GitHub UI (for testing)
+  workflow_dispatch:
+
+jobs:
+  trade:
+    name: Run Trading Cycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 55  # Safety: kill job before next cron fires
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          cd trading_system
+          pip install -r requirements.txt
+
+      - name: Run Trading Cycle
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ENVIRONMENT: paper
+          ALPACA_PAPER: "true"
+        run: |
+          cd trading_system
+          python scripts/paper_runner.py 2>&1
+
+      - name: Upload Trading Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trading-log-${{ github.run_number }}-${{ github.run_attempt }}
+          path: trading_system/live_output.txt
+          retention-days: 30
