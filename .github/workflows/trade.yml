@@ -49,6 +49,10 @@ jobs:
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
           ENVIRONMENT: paper
           ALPACA_PAPER: "true"
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ vars.EMAIL_RECIPIENT }}
+
         run: |
           cd trading_system
           python scripts/paper_runner.py 2>&1
