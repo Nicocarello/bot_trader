@@ -31,6 +31,7 @@ from agents.analytical_agents import MarketRegimeAgent, MacroEconomicsAgent
 from agents.sector_agent import SectorFlowAgent
 from agents.calendar_agent import CalendarAgent
 from agents.risk_guard_agent import RiskGuardAgent
+from notifiers.email_notifier import EmailNotifier
 from agents.coordinator import StrategyCoordinator
 from data.live_ingestion import LiveDataIngestion
 from config import config
@@ -66,6 +67,7 @@ class PaperTradingRunner:
         self.sector_agent = SectorFlowAgent()
         self.risk_guard = RiskGuardAgent(stop_loss_pct=-0.05, take_profit_pct=0.10)
         self.calendar_agent = CalendarAgent(earnings_days_before=3, earnings_days_after=1)
+        self.notifiers = EmailNotifier()
 
         # Strategy fleet (per-symbol)
         self.strategies = [
@@ -183,6 +185,49 @@ class PaperTradingRunner:
         logger.info("\n╔══════════════════════════════════════════════════════╗")
         logger.info("║     CYCLE COMPLETE                                   ║")
         logger.info("╚══════════════════════════════════════════════════════╝\n")
+
+        # ─────────────────────────────────────────────────────
+        # PHASE 6: Daily Summary Report
+        # ─────────────────────────────────────────────────────
+        # This will fetch all orders from today's session and email you.
+        self.send_daily_summary()
+
+    def send_daily_summary(self):
+        """
+        Fetches all orders filled within the last 24 hours from Alpaca 
+        and sends an email report.
+        """
+        logger.info("\n[PHASE 6] Generating Daily Operations Report...")
+        try:
+            from alpaca.trading.requests import GetOrdersRequest
+            from alpaca.trading.enums import OrderStatus
+            
+            # Fetch orders from today
+            params = GetOrdersRequest(
+                status=OrderStatus.CLOSED,
+                limit=50
+            ) 
+            closed_orders = self.execution.client.get_orders(filter=params)
+            
+            # Convert to standard dictionary list
+            today_str = date.today().isoformat()
+            orders_data = []
+            
+            for o in closed_orders:
+                if o.filled_at and str(o.filled_at)[:10] == today_str:
+                    orders_data.append({
+                        'symbol': o.symbol,
+                        'side': str(o.side.value).lower(),
+                        'qty': float(o.filled_qty),
+                        'price': float(o.filled_avg_price),
+                        'time': o.filled_at.strftime("%H:%M:%S UTC")
+                    })
+            
+            self.notifiers.send_daily_report(orders_data)
+            
+        except Exception as e:
+            logger.error(f"  [ERROR] Summary report generation failed: {e}")
+
 
 
     def _run_symbol_cycle(
