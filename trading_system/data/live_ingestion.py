@@ -4,6 +4,7 @@ Fetches current Alpaca market data and parses related news curations via Google 
 """
 import logging
 import time
+import pandas as pd
 from datetime import datetime, timedelta
 from config import config
 
@@ -57,11 +58,21 @@ class LiveDataIngestion:
                 raise ValueError("Insufficient historical data.")
 
             # Use yfinance close as fallback if Alpaca failed
-            yf_close = float(hist["Close"].iloc[-1])
-            if close_price == 0.0:
-                close_price = yf_close
+            # Ensure we have a Series for Close prices, handling potential multi-index
+            if isinstance(hist["Close"], (float, int)):
+                closes = hist["Close"]
+            elif "Close" in hist.columns:
+                # If multi-index (Ticker, Price), select current symbol if present
+                if isinstance(hist.columns, pd.MultiIndex):
+                    closes = hist["Close"][symbol].dropna()
+                else:
+                    closes = hist["Close"].dropna()
+            else:
+                raise ValueError("Close column missing from history.")
 
-            closes = hist["Close"].squeeze().astype(float)
+            closes = closes.squeeze().astype(float)
+            if close_price == 0.0 and not closes.empty:
+                close_price = float(closes.iloc[-1])
 
             if len(closes) >= 20:
                 # --- SMA-20 ---
@@ -195,7 +206,7 @@ class LiveDataIngestion:
             "XLP": "Consumer Staples",
             "XLU": "Utilities",
             "XLB": "Materials",
-            "XRE": "Real Estate"
+            "XLRE": "Real Estate"
         }
         try:
             data = yf.download(list(sectors.keys()), period="2d", interval="1d", progress=False)["Close"]
@@ -204,7 +215,20 @@ class LiveDataIngestion:
             
             returns = {}
             for ticker in sectors:
-                returns[ticker] = float((latest[ticker] / prev[ticker]) - 1)
+                try:
+                    t_latest = latest[ticker] if ticker in latest else latest
+                    t_prev = prev[ticker] if ticker in prev else prev
+                    
+                    if hasattr(t_latest, "iloc"): t_latest = t_latest.iloc[0]
+                    if hasattr(t_prev, "iloc"): t_prev = t_prev.iloc[0]
+                    
+                    val_latest = float(t_latest)
+                    val_prev = float(t_prev)
+                    
+                    if val_prev > 0:
+                        returns[ticker] = (val_latest / val_prev) - 1
+                except Exception:
+                    continue
             
             return returns
         except Exception as e:

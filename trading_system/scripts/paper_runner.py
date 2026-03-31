@@ -82,6 +82,17 @@ class PaperTradingRunner:
             FundamentalAnalystAgent()
         ]
 
+        # ─────────────────────────────────────────────────────
+        # PHASE -1: Synchronize Portfolio with Live Alpaca Data
+        # ─────────────────────────────────────────────────────
+        try:
+            account = self.adapter.client.get_account()
+            self.portfolio.available_cash_usd = float(account.buying_power)
+            self.portfolio.total_capital_usd = float(account.portfolio_value)
+            logger.info(f"\n[SYNC] Portfolio Synced: Cash=${self.portfolio.available_cash_usd:,.2f} | Total Value=${self.portfolio.total_capital_usd:,.2f}")
+        except Exception as e:
+            logger.error(f"  [ERROR] Portfolio sync failed: {e}. Using default values.")
+
     def run_full_cycle(self, universe: list):
         """Runs one complete orchestration cycle over the full ticker universe."""
 
@@ -134,7 +145,7 @@ class PaperTradingRunner:
         logger.info("\n[PHASE 3] Monitoring Open Positions for Exits...")
         try:
             # Fetch real positions from Alpaca for exit logic
-            positions = self.execution.client.get_all_positions()
+            positions = self.adapter.client.get_all_positions()
             
             # Map into a simplified dictionary list for the RiskGuardAgent
             pos_dicts = []
@@ -166,7 +177,7 @@ class PaperTradingRunner:
                     )
                     
                     # Execute the SELL order immediately
-                    report = self.execution.route_order(exit_decision, exit_sig.current_price)
+                    report = self.adapter.route_order(exit_decision, exit_sig.current_price)
                     logger.info(f"  [EXECUTION] Sell order: {report.status} for {report.quantity} shares.")
                     
         except Exception as e:
@@ -219,7 +230,7 @@ class PaperTradingRunner:
                 status=OrderStatus.CLOSED,
                 limit=50
             ) 
-            closed_orders = self.execution.client.get_orders(filter=params)
+            closed_orders = self.adapter.client.get_orders(filter=params)
             
             # Convert to standard dictionary list
             today_str = date.today().isoformat()
@@ -236,9 +247,10 @@ class PaperTradingRunner:
                     })
             
             self.notifiers.send_daily_report(orders_data)
+            logger.info(f"  [PHASE 6] Daily report sent successfully ({len(orders_data)} orders).")
             
         except Exception as e:
-            logger.error(f"  [ERROR] Summary report generation failed: {e}")
+            logger.error(f"  [ERROR] Summary report generation failed: {type(e).__name__}: {str(e)}")
 
 
 
@@ -350,7 +362,12 @@ class PaperTradingRunner:
 
         try:
             report = self.adapter.route_order(risk_decision, current_price)
-            logger.info(f"  [✅ FILLED] {report.status.upper()} | {report.quantity} shares @ ${report.fill_price:.2f}")
+            if report.status == "filled":
+                logger.info(f"  [✅ FILLED] {report.status.upper()} | {report.quantity} shares @ ${report.fill_price:.2f}")
+                # Update local cash to prevent over-allocation in the same loop
+                self.portfolio.available_cash_usd -= (report.quantity * report.fill_price)
+            else:
+                logger.warning(f"  [⚠ NOT FILLED] Status: {report.status.upper()}")
         except Exception as e:
             logger.error(f"  [❌ EXECUTION FAILED] {e}")
 
@@ -364,7 +381,7 @@ if __name__ == "__main__":
         # --- Energy & Industrials ---
         "XOM", "CVX", "SLB", "BA", "CAT",
         # --- Crypto-Linked & Fintech ---
-        "COIN", "MARA", "PYPL", "SQ",
+        "COIN", "MARA", "PYPL",
         # --- Market Tracking / ETFs ---
         "SPY", "QQQ", "IWM", "GLD",
         # --- International (LatAm / Japan / Brazil) ---
