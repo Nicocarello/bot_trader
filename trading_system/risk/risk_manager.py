@@ -99,21 +99,25 @@ class RiskManager:
         return RiskDecision(
             asset=decision.asset,
             approved=True,
+            action="buy" if decision.final_decision == "long" else "sell",
             net_expected_value_pct=net_ev_pct,
             kelly_fraction_suggested=kelly_fraction_suggested,
             uncertainty_penalty_applied=uncertainty_penalty,
             final_capital_allocation_usd=final_capital_usd,
-            market_regime=decision.market_regime
+            market_regime=decision.market_regime,
+            reasoning=decision.reasoning_summary
         )
 
     def _reject(self, decision: SynthesizedDecision, reason: str) -> RiskDecision:
         return RiskDecision(
             asset=decision.asset,
             approved=False,
+            action="buy" if decision.final_decision == "long" else "sell",
             net_expected_value_pct=0.0,
             kelly_fraction_suggested=0.0,
             uncertainty_penalty_applied=decision.uncertainty_score,
             final_capital_allocation_usd=0.0,
             market_regime=decision.market_regime,
-            rejection_reason=reason
+            rejection_reason=reason,
+            reasoning=decision.reasoning_summary
         )

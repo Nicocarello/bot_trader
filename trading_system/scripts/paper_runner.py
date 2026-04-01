@@ -166,8 +166,6 @@ class PaperTradingRunner:
                 for exit_sig in exits:
                     logger.warning(f"  🚨 [EXIT SIGNAL] {exit_sig.symbol}: {exit_sig.reason} @ ${exit_sig.current_price:.2f}")
                     
-                    # Convert ExitSignal into a synthetic RiskDecision for the adapter
-                    from schemas.models import RiskDecision
                     exit_decision = RiskDecision(
                         asset=exit_sig.symbol,
                         action="sell",

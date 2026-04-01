@@ -73,13 +73,15 @@ class RiskDecision(BaseModel):
     """The final gatekeeper decision from the Portfolio/Risk Manager."""
     asset: str
     approved: bool
-    net_expected_value_pct: float
-    kelly_fraction_suggested: float
-    uncertainty_penalty_applied: float
+    net_expected_value_pct: float = 0.0
+    kelly_fraction_suggested: float = 0.0
+    uncertainty_penalty_applied: float = 0.0
     final_capital_allocation_usd: float = Field(..., ge=0.0)
     stop_loss_price: Optional[float] = None
     take_profit_price: Optional[float] = None
-    market_regime: MarketRegimeClassification
+    market_regime: Optional[MarketRegimeClassification] = None
+    action: Literal["buy", "sell"] = "buy"
+    reasoning: Optional[str] = None
     rejection_reason: Optional[str] = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
