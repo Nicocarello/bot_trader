@@ -14,7 +14,7 @@ class NewsSentimentAgent:
         self.api_key = os.getenv("GEMINI_API_KEY")
         if self.api_key:
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-1.5-flash')
+            self.model = genai.GenerativeModel('gemini-2.5-flash')
         else:
             logger.warning("GEMINI_API_KEY not found. Sentiment analysis will be disabled.")
             self.model = None
