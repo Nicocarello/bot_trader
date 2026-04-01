@@ -54,56 +54,62 @@ class LiveDataIngestion:
         try:
             hist = yf.download(symbol, period="60d", interval="1d", progress=False, auto_adjust=True)
 
-            if hist.empty or len(hist) < 5:
-                raise ValueError("Insufficient historical data.")
+            # Robust column selection function to handle yfinance v0.2.x MultiIndex and Series/DF cases
+            def get_scalar_series(df, col):
+                if col not in df.columns: return None
+                s = df[col]
+                # If Multi-index (e.g. from yf.download with multiple tickers or v0.2 defaults), pick appropriate slice
+                if isinstance(s, pd.DataFrame):
+                    if symbol in s.columns:
+                        s = s[symbol]
+                    else:
+                        s = s.iloc[:, 0]
+                return s.dropna().astype(float)
 
-            # Use yfinance close as fallback if Alpaca failed
-            # Ensure we have a Series for Close prices, handling potential multi-index
-            if isinstance(hist["Close"], (float, int)):
-                closes = hist["Close"]
-            elif "Close" in hist.columns:
-                # If multi-index (Ticker, Price), select current symbol if present
-                if isinstance(hist.columns, pd.MultiIndex):
-                    closes = hist["Close"][symbol].dropna()
-                else:
-                    closes = hist["Close"].dropna()
-            else:
-                raise ValueError("Close column missing from history.")
+            closes = get_scalar_series(hist, "Close")
+            highs = get_scalar_series(hist, "High")
+            volumes = get_scalar_series(hist, "Volume")
 
-            closes = closes.squeeze().astype(float)
-            if close_price == 0.0 and not closes.empty:
+            if closes is None or closes.empty:
+                raise ValueError(f"Close column missing or empty for {symbol}.")
+
+            # Ensure volume is always available
+            if volumes is None or volumes.empty:
+                volumes = pd.Series([1.0] * len(closes), index=closes.index)
+
+            # Update current close if Alpaca failed
+            if close_price == 0.0:
                 close_price = float(closes.iloc[-1])
 
             if len(closes) >= 20:
                 # --- SMA-20 ---
-                sma_20 = float(closes.rolling(20).mean().iloc[-1])
+                sma_20_series = closes.rolling(20).mean()
+                sma_20 = float(sma_20_series.iloc[-1])
 
                 # --- Bollinger Bands (2 std) ---
-                std_20 = float(closes.rolling(20).std().iloc[-1])
-                bb_upper = sma_20 + 2.0 * std_20
-                bb_lower = sma_20 - 2.0 * std_20
+                std_20_series = closes.rolling(20).std()
+                std_20 = float(std_20_series.iloc[-1])
+                bb_upper = sma_20 + (2.0 * std_20)
+                bb_lower = sma_20 - (2.0 * std_20)
                 bb_width = bb_upper - bb_lower
 
-                # --- Z-Score: how many std devs is price from the SMA ---
+                # --- Z-Score ---
                 z_score = (close_price - sma_20) / std_20 if std_20 > 0 else 0.0
 
-                # --- BB Width Percentile (squeeze detection) ---
-                # Measures where current BB width falls vs its history (0=tightest, 100=widest)
+                # --- BB Width Percentile ---
                 if len(closes) >= 30:
-                    all_std = closes.rolling(20).std().dropna()
-                    all_widths = all_std * 4.0  # factor for upper-lower spread
+                    all_widths = std_20_series.dropna() * 4.0
                     pct_below = float((all_widths < bb_width).mean() * 100)
                     bb_width_percentile = round(pct_below, 1)
                 else:
                     bb_width_percentile = 50.0
 
-                # --- Previous session high ---
-                prev_high = float(hist["High"].iloc[-2]) if len(hist) >= 2 else close_price
+                # --- Previous High ---
+                prev_high = float(highs.iloc[-2]) if len(highs) >= 2 else close_price
 
-                # --- Volume ratio: today vs 20-day average ---
-                avg_volume_20 = float(hist["Volume"].rolling(20).mean().iloc[-1])
+                # --- Volume Ratio ---
+                avg_volume_20 = float(volumes.rolling(20).mean().iloc[-1])
                 volume_ratio = (volume / avg_volume_20) if avg_volume_20 > 0 else 1.0
-
             else:
                 # Not enough history — use safe neutral defaults
                 logger.warning(f"  [{symbol}] Only {len(closes)} bars available. Using neutral indicator defaults.")

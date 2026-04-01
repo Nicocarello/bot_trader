@@ -31,8 +31,16 @@ class NewsSentimentAgent:
             if not news:
                 return {"sentiment_score": 0.5, "veto": False, "reason": "No news found"}
 
-            # 2. Extract headlines
-            headlines = [n['title'] for n in news[:8]] # Grab top 8 recent headlines
+            # 2. Extract headlines safely
+            headlines = []
+            for n in news[:8]:
+                if isinstance(n, dict):
+                    # Check both 'title' and 'headline' as fallback, handle missing keys
+                    title = n.get('title') or n.get('headline') or "No Title Available"
+                    headlines.append(title)
+                else:
+                    headlines.append(str(n))
+
             news_text = "\n- ".join(headlines)
 
             # 3. Prompt Gemini
