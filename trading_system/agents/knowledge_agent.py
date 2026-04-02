@@ -1,7 +1,7 @@
 import os
 import logging
 import glob
-import google.generativeai as genai
+from google import genai
 from typing import List, Optional
 from datetime import datetime, timezone
 from schemas.models import RAGContext, TradeProposal
@@ -18,10 +18,10 @@ class KnowledgeAgent:
         self.knowledge_dir = knowledge_dir
         self.api_key = os.getenv("GEMINI_API_KEY")
         if self.api_key:
-            genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-1.5-flash')
+            self.client = genai.Client(api_key=self.api_key)
+            self.model_id = 'gemini-2.5-flash'
         else:
-            self.model = None
+            self.client = None
 
     def _load_knowledge_text(self) -> str:
         """Reads all .md and .txt files from the knowledge directory."""
@@ -48,8 +48,8 @@ class KnowledgeAgent:
         """
         knowledge_base = self._load_knowledge_text()
         
-        if not self.model or not knowledge_base:
-            reason = "No Gemini API key." if not self.model else "Knowledge folder is empty. (Add .md files!)"
+        if not self.client or not knowledge_base:
+            reason = "No Gemini API key." if not self.client else "Knowledge folder is empty. (Add .md files!)"
             return RAGContext(
                 query=f"Validate {asset} {proposal.decision} setup",
                 top_k_chunks=[],
@@ -80,7 +80,10 @@ class KnowledgeAgent:
             }}
             """
 
-            response = self.model.generate_content(prompt)
+            response = self.client.models.generate_content(
+                model=self.model_id,
+                contents=prompt
+            )
             text = response.text.strip().replace("```json", "").replace("```", "")
             
             import json

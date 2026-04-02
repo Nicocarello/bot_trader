@@ -1,7 +1,7 @@
 import os
 import logging
 import yfinance as yf
-import google.generativeai as genai
+from google import genai
 from typing import Dict, List
 from config import config
 
@@ -13,15 +13,15 @@ class NewsSentimentAgent:
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY")
         if self.api_key:
-            genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-2.5-flash')
+            self.client = genai.Client(api_key=self.api_key)
+            self.model_id = 'gemini-2.5-flash'
         else:
             logger.warning("GEMINI_API_KEY not found. Sentiment analysis will be disabled.")
-            self.model = None
+            self.client = None
 
     def analyze_ticker(self, symbol: str) -> Dict:
         """ Fetches latest news via yfinance and analyzes with Gemini. """
-        if not self.model:
+        if not self.client:
             return {"sentiment_score": 0.5, "veto": False, "reason": "No API Key"}
 
         try:
@@ -60,7 +60,10 @@ class NewsSentimentAgent:
             Only output the JSON.
             """
 
-            response = self.model.generate_content(prompt)
+            response = self.client.models.generate_content(
+                model=self.model_id,
+                contents=prompt
+            )
             
             # Simple cleanup for JSON parsing
             text = response.text.strip().replace("```json", "").replace("```", "")
